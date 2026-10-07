@@ -166,10 +166,12 @@ jobs:
           $zip = Join-Path $env:GITHUB_WORKSPACE "RE_Kenshi-Bolt-Supply.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path "$packageRoot/*" -DestinationPath $zip -Force
+          if (!(Test-Path $zip)) { throw "Mod package ZIP was not created: $zip" }
+          Get-Item $zip | Format-List FullName,Length
 
       - name: Upload mod package
         uses: actions/upload-artifact@v4
         with:
           name: RE-Kenshi-Bolt-Supply
-          path: RE-Kenshi-Bolt-Supply.zip
+          path: ${{ github.workspace }}/RE-Kenshi-Bolt-Supply.zip
           if-no-files-found: error
