@@ -2,17 +2,14 @@ name: Build Bolt Supply
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-2022
-
+    runs-on: windows-latest
     steps:
       - name: Checkout plugin
         uses: actions/checkout@v4
@@ -27,89 +24,74 @@ jobs:
           path: third_party/KenshiLib_deps
           lfs: true
 
-      - name: Locate MSBuild
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Prepare build environment
+      - name: Prepare build dependencies
         shell: pwsh
         run: |
           $deps = Join-Path $env:GITHUB_WORKSPACE "third_party/KenshiLib_deps"
           $kenshiLib = Join-Path $deps "KenshiLib"
-          $boostArchiveDir = Join-Path $deps "boost_1_60_0"
-          $boostZip = Join-Path $boostArchiveDir "boost.zip"
+          $boostZip = Join-Path $deps "boost_1_60_0/boost.zip"
           $boostExtract = Join-Path $deps "boost_extracted"
-
-          if (!(Test-Path (Join-Path $kenshiLib "Include"))) {
-            throw "KenshiLib Include directory was not found."
-          }
-
-          if (!(Test-Path (Join-Path $kenshiLib "Libraries"))) {
-            throw "KenshiLib Libraries directory was not found."
-          }
-
-          if (!(Test-Path $boostZip)) {
-            throw "Boost archive was not found: $boostZip"
-          }
-
-          if (Test-Path $boostExtract) {
-            Remove-Item $boostExtract -Recurse -Force
-          }
-
+          if (!(Test-Path (Join-Path $kenshiLib "Include"))) { throw "KenshiLib Include directory was not found." }
+          if (!(Test-Path (Join-Path $kenshiLib "Libraries"))) { throw "KenshiLib Libraries directory was not found." }
+          if (!(Test-Path $boostZip)) { throw "Boost archive was not found: $boostZip" }
+          if (Test-Path $boostExtract) { Remove-Item $boostExtract -Recurse -Force }
           Expand-Archive -Path $boostZip -DestinationPath $boostExtract -Force
-
           $boostHeader = Get-ChildItem $boostExtract -Filter "unordered_map.hpp" -Recurse -File |
-            Where-Object { $_.FullName -match "\\boost\\unordered_map\.hpp$" } |
-            Select-Object -First 1
-
-          if (!$boostHeader) {
-            throw "Boost unordered_map.hpp was not found after extracting boost.zip."
-          }
-
+            Where-Object { $_.FullName -match "\\boost\\unordered_map\.hpp$" } | Select-Object -First 1
+          if (!$boostHeader) { throw "Boost unordered_map.hpp was not found." }
           $boost = $boostHeader.Directory.Parent.FullName
-          $boostLibDir = Join-Path $boost "stage\lib"
+          $boostLibDir = Join-Path $boost "stage/lib"
+          if (!(Test-Path $boostLibDir)) { throw "Boost library directory was not found: $boostLibDir" }
+          "KENSHILIB_DIR=$kenshiLib" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "BOOST_INCLUDE_PATH=$boost" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "BOOST_LIBRARY_PATH=$boostLibDir" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
-          if (!(Test-Path $boostLibDir)) {
-            throw "Boost stage\lib directory was not found under: $boost"
-          }
-
-          "KENSHILIB_DIR=$kenshiLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "BOOST_INCLUDE_PATH=$boost" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "BOOST_LIBRARY_PATH=$boostLibDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Build Release x64
+      - name: Build with MSVC (Nitoryu-style)
         shell: pwsh
         run: |
-          $out = Join-Path $env:GITHUB_WORKSPACE "build\"
-          msbuild .\BoltSupply.vcxproj /m /t:Build /p:Configuration=Release /p:Platform=x64 /p:OutDir="$out"
+          $vswhere = Join-Path ([Environment]::GetEnvironmentVariable("ProgramFiles(x86)")) "Microsoft Visual Studio/Installer/vswhere.exe"
+          if (!(Test-Path $vswhere)) { throw "vswhere.exe not found: $vswhere" }
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vsPath) { throw "A Visual C++ x64 toolchain was not found." }
+          $vcvars = Join-Path $vsPath "VC/Auxiliary/Build/vcvars64.bat"
+          if (!(Test-Path $vcvars)) { throw "vcvars64.bat not found: $vcvars" }
 
-      - name: Verify DLL
+          $out = Join-Path $env:GITHUB_WORKSPACE "build/BoltSupply.dll"
+          New-Item -ItemType Directory -Force -Path (Split-Path $out) | Out-Null
+          Write-Host "Using Visual Studio: $vsPath"
+
+          $buildCmd = '"' + $vcvars + '" && cl /nologo /LD /EHsc /O2 /MT /std:c++17 /I"' + $env:KENSHILIB_DIR + '/Include" /I"' + $env:KENSHILIB_DIR + '/Include/ogre" /I"' + $env:BOOST_INCLUDE_PATH + '" "src/BoltSupply.cpp" /link /LIBPATH:"' + $env:KENSHILIB_DIR + '/Libraries" /LIBPATH:"' + $env:BOOST_LIBRARY_PATH + '" kenshilib.lib /OUT:"' + $out + '"'
+          cmd.exe /d /c $buildCmd
+          if ($LASTEXITCODE -ne 0) { throw "MSVC build failed with exit code $LASTEXITCODE" }
+
+      - name: Verify DLL export
         shell: pwsh
         run: |
-          $dll = Join-Path $env:GITHUB_WORKSPACE "build\BoltSupply.dll"
-          if (!(Test-Path $dll)) {
-            throw "Build completed without producing BoltSupply.dll"
-          }
-          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+          $dll = Join-Path $env:GITHUB_WORKSPACE "build/BoltSupply.dll"
+          if (!(Test-Path $dll)) { throw "BoltSupply.dll was not produced." }
+          $vswhere = Join-Path ([Environment]::GetEnvironmentVariable("ProgramFiles(x86)")) "Microsoft Visual Studio/Installer/vswhere.exe"
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $dumpbin = Get-ChildItem (Join-Path $vsPath "VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe") | Select-Object -First 1
+          if (!$dumpbin) { throw "dumpbin.exe not found." }
+          $exports = & $dumpbin.FullName /exports $dll 2>&1 | Out-String
+          Write-Host $exports
+          if ($exports -notmatch "startPlugin") { throw "Expected startPlugin export was not found." }
 
       - name: Assemble mod package
         shell: pwsh
         run: |
-          $packageRoot = Join-Path $env:GITHUB_WORKSPACE "package\RE_Kenshi Bolt Supply"
-          New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
-          Copy-Item "$env:GITHUB_WORKSPACE\RE_Kenshi Bolt Supply.mod" $packageRoot
-          Copy-Item "$env:GITHUB_WORKSPACE\RE_Kenshi.json" $packageRoot
-          Copy-Item "$env:GITHUB_WORKSPACE\build\BoltSupply.dll" $packageRoot
-
+          $packageRoot = Join-Path $env:GITHUB_WORKSPACE "package/RE_Kenshi Bolt Supply"
+          New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE/RE_Kenshi Bolt Supply.mod" $packageRoot
+          Copy-Item "$env:GITHUB_WORKSPACE/RE_Kenshi.json" $packageRoot
+          Copy-Item "$env:GITHUB_WORKSPACE/build/BoltSupply.dll" $packageRoot
           $zip = Join-Path $env:GITHUB_WORKSPACE "RE_Kenshi-Bolt-Supply.zip"
-          if (Test-Path $zip) {
-            Remove-Item $zip -Force
-          }
-          Compress-Archive -Path $packageRoot -DestinationPath $zip -Force
-          Get-ChildItem $packageRoot | Format-Table Name,Length
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "$packageRoot/*" -DestinationPath $zip -Force
 
       - name: Upload mod package
         uses: actions/upload-artifact@v4
         with:
           name: RE-Kenshi-Bolt-Supply
-          path: RE_Kenshi-Bolt-Supply.zip
+          path: RE-Kenshi-Bolt-Supply.zip
           if-no-files-found: error
