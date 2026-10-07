@@ -37,13 +37,25 @@ jobs:
           }
           New-Item -ItemType Directory -Force -Path $nugetRoot | Out-Null
           nuget install boost-vc140 -Version 1.60.0 -OutputDirectory $nugetRoot -NonInteractive -ExcludeVersion
-          $boostVc140Lib = Get-ChildItem $nugetRoot -Filter "libboost_thread-vc140-mt-1_60.lib" -Recurse -File |
+          $boostThreadLib = Get-ChildItem $nugetRoot -Filter "libboost_thread-vc140-mt-1_60.lib" -Recurse -File |
             Select-Object -First 1
-          if (!$boostVc140Lib) {
-            throw "VC140 Boost 1.60 static thread library was not found after NuGet installation."
+          $boostSystemLib = Get-ChildItem $nugetRoot -Filter "libboost_system-vc140-mt-1_60.lib" -Recurse -File |
+            Select-Object -First 1
+          if (!$boostThreadLib) {
+            throw "VC140 Boost 1.60 thread library was not found after NuGet installation."
           }
-          $boostVc140LibraryPath = $boostVc140Lib.Directory.FullName
-          "BOOST_VC140_LIBRARY_PATH=$boostVc140LibraryPath" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          if (!$boostSystemLib) {
+            throw "VC140 Boost 1.60 system library was not found after NuGet installation."
+          }
+
+          Write-Host "Boost thread library: $($boostThreadLib.FullName)"
+          Write-Host "Boost system library: $($boostSystemLib.FullName)"
+
+          $boostLibraryDirs = Get-ChildItem $nugetRoot -Filter "libboost_*.lib" -Recurse -File |
+            ForEach-Object { $_.Directory.FullName } |
+            Sort-Object -Unique
+          $boostLibraryPathArgs = ($boostLibraryDirs | ForEach-Object { '/LIBPATH:"' + $_ + '"' }) -join " "
+          "BOOST_VC140_LIBRARY_PATH_ARGS=$boostLibraryPathArgs" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           $kenshiLib = Join-Path $deps "KenshiLib"
           $boostZip = Join-Path $deps "boost_1_60_0/boost.zip"
           $boostExtract = Join-Path $deps "boost_extracted"
