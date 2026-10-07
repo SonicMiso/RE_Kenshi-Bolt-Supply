@@ -173,5 +173,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: RE-Kenshi-Bolt-Supply
-          path: ${{ github.workspace }}/RE-Kenshi-Bolt-Supply.zip
+          path: ${{ github.workspace }}/RE_Kenshi-Bolt-Supply.zip
           if-no-files-found: error
