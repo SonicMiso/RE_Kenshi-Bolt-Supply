@@ -88,7 +88,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Split-Path $out) | Out-Null
           Write-Host "Using Visual Studio: $vsPath"
 
-          $buildCmd = '"' + $vcvars + '" && cl /nologo /LD /EHsc /O2 /MD /std:c++17 /I"' + $env:KENSHILIB_DIR + '/Include" /I"' + $env:KENSHILIB_DIR + '/Include/ogre" /I"' + $env:BOOST_INCLUDE_PATH + '" "src/BoltSupply.cpp" /link /LIBPATH:"' + $env:KENSHILIB_DIR + '/Libraries" /LIBPATH:"' + $env:BOOST_VC140_LIBRARY_PATH + '" kenshilib.lib OgreMain_x64.lib MyGUIEngine_x64.lib /OUT:"' + $out + '"'
+          $buildCmd = '"' + $vcvars + '" && cl /nologo /LD /EHsc /O2 /MD /std:c++17 /I"' + $env:KENSHILIB_DIR + '/Include" /I"' + $env:KENSHILIB_DIR + '/Include/ogre" /I"' + $env:BOOST_INCLUDE_PATH + '" "src/BoltSupply.cpp" /link /LIBPATH:"' + $env:KENSHILIB_DIR + '/Libraries" ' + $env:BOOST_VC140_LIBRARY_PATH_ARGS + ' kenshilib.lib OgreMain_x64.lib MyGUIEngine_x64.lib /OUT:"' + $out + '"'
           cmd.exe /d /c $buildCmd
           if ($LASTEXITCODE -ne 0) { throw "MSVC build failed with exit code $LASTEXITCODE" }
 
