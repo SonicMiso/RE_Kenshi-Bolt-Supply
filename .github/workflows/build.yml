@@ -46,28 +46,6 @@ jobs:
           "BOOST_INCLUDE_PATH=$boost" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           "BOOST_LIBRARY_PATH=$boostLibDir" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Inspect KenshiLib and Boost libraries
-        shell: pwsh
-        run: |
-          $libDir = Join-Path $env:KENSHILIB_DIR "Libraries"
-          Write-Host "KenshiLib libraries:"
-          Get-ChildItem $libDir -File | Select-Object Name,Length | Format-Table -AutoSize
-
-          Write-Host "Boost libraries:"
-          Get-ChildItem $env:BOOST_LIBRARY_PATH -File -ErrorAction Stop |
-            Where-Object { $_.Name -match "boost" } |
-            Select-Object Name,Length | Format-Table -AutoSize
-
-          $vswhere = Join-Path ([Environment]::GetEnvironmentVariable("ProgramFiles(x86)")) "Microsoft Visual Studio/Installer/vswhere.exe"
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          $dumpbin = Get-ChildItem (Join-Path $vsPath "VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe") | Select-Object -First 1
-          if (!$dumpbin) { throw "dumpbin.exe not found." }
-
-          Write-Host "KenshiLib embedded linker directives:"
-          & $dumpbin.FullName /directives (Join-Path $libDir "kenshilib.lib") 2>&1 |
-            Select-String "boost|DEFAULTLIB" |
-            ForEach-Object { Write-Host $_.Line }
-
       - name: Build with MSVC (Nitoryu-style)
         shell: pwsh
         run: |
@@ -82,7 +60,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Split-Path $out) | Out-Null
           Write-Host "Using Visual Studio: $vsPath"
 
-          $buildCmd = '"' + $vcvars + '" && cl /nologo /LD /EHsc /O2 /MT /std:c++17 /I"' + $env:KENSHILIB_DIR + '/Include" /I"' + $env:KENSHILIB_DIR + '/Include/ogre" /I"' + $env:BOOST_INCLUDE_PATH + '" "src/BoltSupply.cpp" /link /LIBPATH:"' + $env:KENSHILIB_DIR + '/Libraries" /LIBPATH:"' + $env:BOOST_LIBRARY_PATH + '" kenshilib.lib /OUT:"' + $out + '"'
+          $boostLibs = Get-ChildItem $env:BOOST_LIBRARY_PATH -Filter "libboost_*-vc100-mt-1_60.lib" -File |
+            Sort-Object Name |
+            ForEach-Object { '"' + $_.FullName + '"' }
+          if (!$boostLibs) { throw "No VC100 Boost 1.60 static libraries were found." }
+          $boostArgs = $boostLibs -join " "
+
+          $buildCmd = '"' + $vcvars + '" && cl /nologo /LD /EHsc /O2 /MD /std:c++17 /DBOOST_ALL_NO_LIB /I"' + $env:KENSHILIB_DIR + '/Include" /I"' + $env:KENSHILIB_DIR + '/Include/ogre" /I"' + $env:BOOST_INCLUDE_PATH + '" "src/BoltSupply.cpp" /link /LIBPATH:"' + $env:KENSHILIB_DIR + '/Libraries" ' + $boostArgs + ' kenshilib.lib /OUT:"' + $out + '"'
           cmd.exe /d /c $buildCmd
           if ($LASTEXITCODE -ne 0) { throw "MSVC build failed with exit code $LASTEXITCODE" }
 
