@@ -11,6 +11,7 @@
 #include <kenshi/Enums.h>
 #include <kenshi/Faction.h>
 #include <kenshi/Gear.h>
+#include <kenshi/GunClass.h>
 #include <kenshi/GameWorld.h>
 #include <kenshi/Globals.h>
 #include <kenshi/Inventory.h>
@@ -35,10 +36,12 @@ namespace BoltSupply
     {
         JobState state;
         RootObject* source;
+        GameData* ammoType;
 
         Job()
             : state(JobState::None)
             , source(nullptr)
+            , ammoType(nullptr)
         {
         }
     };
@@ -47,9 +50,9 @@ namespace BoltSupply
     static std::unordered_set<RootObject*> reservedSources;
     static float scanTimer = 0.0f;
 
-    static int ammoCount(Inventory* inventory)
+    static int ammoCount(Inventory* inventory, GameData* ammoType)
     {
-        if (!inventory)
+        if (!inventory || !ammoType)
             return 0;
 
         lektor<Item*> ammo;
@@ -59,11 +62,22 @@ namespace BoltSupply
         for (int i = 0; i < ammo.size(); ++i)
         {
             Item* item = ammo[i];
-            if (item)
+            if (item && item->getGameData() == ammoType)
                 total += std::max(0, item->quantity);
         }
 
         return total;
+    }
+
+    static GameData* requiredAmmoType(Crossbow* crossbow)
+    {
+        if (!crossbow || !crossbow->gunClass)
+            return nullptr;
+
+        // GunClass::ammoType is the game's authoritative ammo definition.
+        // Matching the GameData pointer avoids mixing Regular, Toothpick and
+        // Long/Heavy Bolts even though all of them are ITEM_AMMO.
+        return crossbow->gunClass->ammoType;
     }
 
     static bool isPlayerCharacter(Character* character)
@@ -92,9 +106,9 @@ namespace BoltSupply
                objectFaction == playerFaction;
     }
 
-    static bool hasEnoughToDonate(Inventory* inventory)
+    static bool hasEnoughToDonate(Inventory* inventory, GameData* ammoType)
     {
-        return ammoCount(inventory) > DONOR_RESERVE;
+        return ammoCount(inventory, ammoType) > DONOR_RESERVE;
     }
 
     static bool isReserved(RootObject* object)
@@ -102,9 +116,9 @@ namespace BoltSupply
         return object && reservedSources.find(object) != reservedSources.end();
     }
 
-    static Item* chooseAmmoStack(Inventory* inventory, int maxTransfer)
+    static Item* chooseAmmoStack(Inventory* inventory, GameData* ammoType, int maxTransfer)
     {
-        if (!inventory || maxTransfer <= 0)
+        if (!inventory || !ammoType || maxTransfer <= 0)
             return nullptr;
 
         lektor<Item*> ammo;
@@ -114,7 +128,7 @@ namespace BoltSupply
         for (int i = 0; i < ammo.size(); ++i)
         {
             Item* item = ammo[i];
-            if (!item || item->quantity <= 0)
+            if (!item || item->quantity <= 0 || item->getGameData() != ammoType)
                 continue;
 
             if (!best || item->quantity > best->quantity)
@@ -124,9 +138,9 @@ namespace BoltSupply
         return best;
     }
 
-    static bool transferAmmo(Character* receiver, RootObject* source)
+    static bool transferAmmo(Character* receiver, RootObject* source, GameData* ammoType)
     {
-        if (!receiver || !source)
+        if (!receiver || !source || !ammoType)
             return false;
 
         Inventory* receiverInventory = receiver->getInventory();
@@ -135,11 +149,11 @@ namespace BoltSupply
         if (!receiverInventory || !sourceInventory)
             return false;
 
-        int receiverAmmo = ammoCount(receiverInventory);
+        int receiverAmmo = ammoCount(receiverInventory, ammoType);
         if (receiverAmmo >= LOW_AMMO_THRESHOLD)
             return true;
 
-        int sourceAmmo = ammoCount(sourceInventory);
+        int sourceAmmo = ammoCount(sourceInventory, ammoType);
         int transferable = sourceAmmo - DONOR_RESERVE;
         if (transferable <= 0)
             return false;
@@ -149,7 +163,7 @@ namespace BoltSupply
             return true;
 
         int amount = std::min(wanted, transferable);
-        Item* stack = chooseAmmoStack(sourceInventory, amount);
+        Item* stack = chooseAmmoStack(sourceInventory, ammoType, amount);
         if (!stack)
             return false;
 
@@ -178,9 +192,9 @@ namespace BoltSupply
         return true;
     }
 
-    static RootObject* findContainerSource(Character* receiver)
+    static RootObject* findContainerSource(Character* receiver, GameData* ammoType)
     {
-        if (!ou || !ou->player || !receiver)
+        if (!ou || !ou->player || !receiver || !ammoType)
             return nullptr;
 
         lektor<RootObject*> objects;
@@ -202,7 +216,7 @@ namespace BoltSupply
                 continue;
 
             Inventory* inventory = object->getInventory();
-            if (!inventory || !hasEnoughToDonate(inventory))
+            if (!inventory || !hasEnoughToDonate(inventory, ammoType))
                 continue;
 
             float distance = receiver->getPosition().squaredDistance(object->getPosition());
@@ -216,9 +230,9 @@ namespace BoltSupply
         return best;
     }
 
-    static RootObject* findTeammateSource(Character* receiver)
+    static RootObject* findTeammateSource(Character* receiver, GameData* ammoType)
     {
-        if (!ou || !ou->player || !receiver)
+        if (!ou || !ou->player || !receiver || !ammoType)
             return nullptr;
 
         const lektor<Character*>& characters = ou->player->getAllPlayerCharacters();
@@ -239,7 +253,7 @@ namespace BoltSupply
                 continue;
 
             Inventory* inventory = candidate->getInventory();
-            if (!inventory || !hasEnoughToDonate(inventory))
+            if (!inventory || !hasEnoughToDonate(inventory, ammoType))
                 continue;
 
             float distance = receiver->getPosition().squaredDistance(candidate->getPosition());
@@ -256,10 +270,10 @@ namespace BoltSupply
         return best;
     }
 
-    static RootObject* findSource(Character* receiver)
+    static RootObject* findSource(Character* receiver, GameData* ammoType)
     {
-        RootObject* container = findContainerSource(receiver);
-        RootObject* teammate = findTeammateSource(receiver);
+        RootObject* container = findContainerSource(receiver, ammoType);
+        RootObject* teammate = findTeammateSource(receiver, ammoType);
 
         if (!container)
             return teammate;
@@ -287,9 +301,9 @@ namespace BoltSupply
         jobs.erase(it);
     }
 
-    static void startJob(Character* character, RootObject* source)
+    static void startJob(Character* character, RootObject* source, GameData* ammoType)
     {
-        if (!character || !source)
+        if (!character || !source || !ammoType)
             return;
 
         if (jobs.find(character) != jobs.end())
@@ -301,6 +315,7 @@ namespace BoltSupply
         Job job;
         job.state = JobState::Travelling;
         job.source = source;
+        job.ammoType = ammoType;
 
         jobs[character] = job;
         reservedSources.insert(source);
@@ -333,7 +348,7 @@ namespace BoltSupply
             return;
         }
 
-        if (ammoCount(character->getInventory()) >= LOW_AMMO_THRESHOLD)
+        if (ammoCount(character->getInventory(), job.ammoType) >= LOW_AMMO_THRESHOLD)
         {
             clearJob(character);
             return;
@@ -343,7 +358,7 @@ namespace BoltSupply
         if (distance > ARRIVAL_RADIUS * ARRIVAL_RADIUS)
             return;
 
-        transferAmmo(character, source);
+        transferAmmo(character, source, job.ammoType);
         clearJob(character);
     }
 
@@ -384,15 +399,19 @@ namespace BoltSupply
             if (!crossbow)
                 continue;
 
-            int ammo = ammoCount(character->getInventory());
+            GameData* ammoType = requiredAmmoType(crossbow);
+            if (!ammoType)
+                continue;
+
+            int ammo = ammoCount(character->getInventory(), ammoType);
             if (ammo >= LOW_AMMO_THRESHOLD)
                 continue;
 
-            RootObject* source = findSource(character);
+            RootObject* source = findSource(character, ammoType);
             if (!source)
                 continue;
 
-            startJob(character, source);
+            startJob(character, source, ammoType);
         }
     }
 }
