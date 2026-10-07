@@ -1,7 +1,28 @@
-#include <algorithm>
-#include <cmath>
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+#ifndef _HAS_AUTO_PTR_ETC
+#define _HAS_AUTO_PTR_ETC 1
+#endif
+
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
+
+namespace std
+{
+    namespace tr1
+    {
+        using ::std::hash;
+        using ::std::unordered_map;
+        using ::std::unordered_multimap;
+        using ::std::unordered_set;
+        using ::std::unordered_multiset;
+    }
+}
 
 #include <Debug.h>
 #include <core/Functions.h>
