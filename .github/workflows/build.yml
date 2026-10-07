@@ -106,7 +106,7 @@ jobs:
           Write-Host "Compiler linker directives:"
           Write-Host $directives
 
-          $boostNames = $directives -split '\\s+' |
+          $boostNames = $directives -split '\s+' |
             Where-Object { $_ -like '/DEFAULTLIB:libboost_*.lib' } |
             ForEach-Object { $_.Substring(12) } |
             Sort-Object -Unique
