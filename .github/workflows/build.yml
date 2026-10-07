@@ -60,7 +60,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Split-Path $out) | Out-Null
           Write-Host "Using Visual Studio: $vsPath"
 
-          $buildCmd = '"' + $vcvars + '" && cl /nologo /LD /EHsc /O2 /MD /std:c++17 /DBOOST_ALL_NO_LIB /I"' + $env:KENSHILIB_DIR + '/Include" /I"' + $env:KENSHILIB_DIR + '/Include/ogre" /I"' + $env:BOOST_INCLUDE_PATH + '" "src/BoltSupply.cpp" /link /LIBPATH:"' + $env:KENSHILIB_DIR + '/Libraries" kenshilib.lib OgreMain_x64.lib MyGUIEngine_x64.lib /OUT:"' + $out + '"'
+          $boostSystemSource = Get-ChildItem $env:BOOST_INCLUDE_PATH -Filter "error_code.cpp" -Recurse -File |
+            Where-Object { $_.FullName -match "\\libs\\system\\src\\error_code\.cpp$" } |
+            Select-Object -First 1
+          if (!$boostSystemSource) { throw "Boost.System source error_code.cpp was not found." }
+
+          $buildCmd = '"' + $vcvars + '" && cl /nologo /LD /EHsc /O2 /MD /std:c++17 /DBOOST_ALL_NO_LIB /DBOOST_SYSTEM_STATIC_LINK=1 /I"' + $env:KENSHILIB_DIR + '/Include" /I"' + $env:KENSHILIB_DIR + '/Include/ogre" /I"' + $env:BOOST_INCLUDE_PATH + '" "src/BoltSupply.cpp" "' + $boostSystemSource.FullName + '" /link /LIBPATH:"' + $env:KENSHILIB_DIR + '/Libraries" kenshilib.lib OgreMain_x64.lib MyGUIEngine_x64.lib /OUT:"' + $out + '"'
           cmd.exe /d /c $buildCmd
           if ($LASTEXITCODE -ne 0) { throw "MSVC build failed with exit code $LASTEXITCODE" }
 
