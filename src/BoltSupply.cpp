@@ -33,8 +33,14 @@ namespace BoltSupply
 
     struct Job
     {
-        JobState state = JobState::None;
-        RootObject* source = nullptr;
+        JobState state;
+        RootObject* source;
+
+        Job()
+            : state(JobState::None)
+            , source(nullptr)
+        {
+        }
     };
 
     static std::unordered_map<Character*, Job> jobs;
