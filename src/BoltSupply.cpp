@@ -348,6 +348,17 @@ namespace BoltSupply
             return;
         }
 
+        Weapon* current = character->getCurrentWeapon();
+        Crossbow* crossbow = current ? current->isCrossbow() : nullptr;
+        GameData* currentAmmoType = requiredAmmoType(crossbow);
+        if (!currentAmmoType || currentAmmoType != job.ammoType)
+        {
+            // The character changed crossbows while travelling. Never supply
+            // the old ammo type to the new weapon.
+            clearJob(character);
+            return;
+        }
+
         if (ammoCount(character->getInventory(), job.ammoType) >= LOW_AMMO_THRESHOLD)
         {
             clearJob(character);
