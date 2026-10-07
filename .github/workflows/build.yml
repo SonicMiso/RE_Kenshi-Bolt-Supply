@@ -38,23 +38,26 @@ jobs:
           New-Item -ItemType Directory -Force -Path $nugetRoot | Out-Null
           nuget install boost-vc140 -Version 1.60.0 -OutputDirectory $nugetRoot -NonInteractive -ExcludeVersion
           $boostThreadLib = Get-ChildItem $nugetRoot -Filter "libboost_thread-vc140-mt-1_60.lib" -Recurse -File |
+            Where-Object { $_.FullName -match "address-model-64\\lib\\libboost_thread-vc140-mt-1_60\.lib$" } |
             Select-Object -First 1
           $boostSystemLib = Get-ChildItem $nugetRoot -Filter "libboost_system-vc140-mt-1_60.lib" -Recurse -File |
+            Where-Object { $_.FullName -match "address-model-64\\lib\\libboost_system-vc140-mt-1_60\.lib$" } |
             Select-Object -First 1
+
           if (!$boostThreadLib) {
-            throw "VC140 Boost 1.60 thread library was not found after NuGet installation."
+            throw "VC140 Boost 1.60 x64 thread library was not found after NuGet installation."
           }
           if (!$boostSystemLib) {
-            throw "VC140 Boost 1.60 system library was not found after NuGet installation."
+            throw "VC140 Boost 1.60 x64 system library was not found after NuGet installation."
           }
 
           Write-Host "Boost thread library: $($boostThreadLib.FullName)"
           Write-Host "Boost system library: $($boostSystemLib.FullName)"
 
-          $boostLibraryDirs = Get-ChildItem $nugetRoot -Filter "libboost_*.lib" -Recurse -File |
-            ForEach-Object { $_.Directory.FullName } |
-            Sort-Object -Unique
-          $boostLibraryPathArgs = ($boostLibraryDirs | ForEach-Object { '/LIBPATH:"' + $_ + '"' }) -join " "
+          $boostLibraryPathArgs = @(
+            '/LIBPATH:"' + $boostThreadLib.Directory.FullName + '"'
+            '/LIBPATH:"' + $boostSystemLib.Directory.FullName + '"'
+          ) -join " "
           "BOOST_VC140_LIBRARY_PATH_ARGS=$boostLibraryPathArgs" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           $kenshiLib = Join-Path $deps "KenshiLib"
           $boostZip = Join-Path $deps "boost_1_60_0/boost.zip"
