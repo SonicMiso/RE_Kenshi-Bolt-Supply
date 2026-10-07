@@ -84,16 +84,62 @@ jobs:
           if (!(Test-Path $vswhere)) { throw "vswhere.exe not found: $vswhere" }
           $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if (!$vsPath) { throw "A Visual C++ x64 toolchain was not found." }
-          $vcvars = Join-Path $vsPath "VC/Auxiliary/Build/vcvars64.bat"
-          if (!(Test-Path $vcvars)) { throw "vcvars64.bat not found: $vcvars" }
 
-          $out = Join-Path $env:GITHUB_WORKSPACE "build/BoltSupply.dll"
-          New-Item -ItemType Directory -Force -Path (Split-Path $out) | Out-Null
+          $vcvars = Join-Path $vsPath "VC/Auxiliary/Build/vcvars64.bat"
+          $dumpbin = Get-ChildItem (Join-Path $vsPath "VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe") |
+            Select-Object -First 1
+          if (!(Test-Path $vcvars)) { throw "vcvars64.bat not found: $vcvars" }
+          if (!$dumpbin) { throw "dumpbin.exe not found." }
+
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE "build"
+          $obj = Join-Path $buildDir "BoltSupply.obj"
+          $out = Join-Path $buildDir "BoltSupply.dll"
+          New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
+
           Write-Host "Using Visual Studio: $vsPath"
 
-          $buildCmd = '"' + $vcvars + '" && cl /nologo /LD /EHsc /O2 /MD /std:c++17 /I"' + $env:KENSHILIB_DIR + '/Include" /I"' + $env:KENSHILIB_DIR + '/Include/ogre" /I"' + $env:BOOST_INCLUDE_PATH + '" "src/BoltSupply.cpp" /link /LIBPATH:"' + $env:KENSHILIB_DIR + '/Libraries" ' + $env:BOOST_VC140_LIBRARY_PATH_ARGS + ' kenshilib.lib OgreMain_x64.lib MyGUIEngine_x64.lib /OUT:"' + $out + '"'
-          cmd.exe /d /c $buildCmd
-          if ($LASTEXITCODE -ne 0) { throw "MSVC build failed with exit code $LASTEXITCODE" }
+          $compileCmd = '"' + $vcvars + '" && cl /nologo /c /EHsc /O2 /MD /std:c++17 /I"' + $env:KENSHILIB_DIR + '/Include" /I"' + $env:KENSHILIB_DIR + '/Include/ogre" /I"' + $env:BOOST_INCLUDE_PATH + '" /Fo"' + $obj + '" "src/BoltSupply.cpp"'
+          cmd.exe /d /c $compileCmd
+          if ($LASTEXITCODE -ne 0) { throw "MSVC compilation failed with exit code $LASTEXITCODE" }
+
+          $directives = & $dumpbin.FullName /directives $obj 2>&1 | Out-String
+          Write-Host "Compiler linker directives:"
+          Write-Host $directives
+
+          $boostNames = [regex]::Matches($directives, '/DEFAULTLIB:"(libboost_[^"]+\.lib)"') |
+            ForEach-Object { $_.Groups[1].Value } |
+            Sort-Object -Unique
+
+          $boostArgs = @()
+          foreach ($name in $boostNames) {
+            $match = Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE "third_party/nuget") -Filter $name -Recurse -File |
+              Where-Object { $_.FullName -match "address-model-64\\lib\\$([regex]::Escape($name))$" } |
+              Select-Object -First 1
+            if (!$match) {
+              throw "Required VC140 x64 Boost library was not found: $name"
+            }
+            Write-Host "Resolved Boost dependency: $($match.FullName)"
+            $boostArgs += '"' + $match.FullName + '"'
+          }
+
+          $kenshiLib = Join-Path $env:KENSHILIB_DIR "Libraries/kenshilib.lib"
+          $ogreLib = Join-Path $env:KENSHILIB_DIR "Libraries/OgreMain_x64.lib"
+          $myguiLib = Join-Path $env:KENSHILIB_DIR "Libraries/MyGUIEngine_x64.lib"
+
+          foreach ($required in @($kenshiLib, $ogreLib, $myguiLib)) {
+            if (!(Test-Path $required)) {
+              throw "Required KenshiLib library was not found: $required"
+            }
+          }
+
+          $linkInputs = '"' + $obj + '" "' + $kenshiLib + '" "' + $ogreLib + '" "' + $myguiLib + '"'
+          if ($boostArgs.Count -gt 0) {
+            $linkInputs += " " + ($boostArgs -join " ")
+          }
+
+          $linkCmd = '"' + $vcvars + '" && cl /nologo /LD /O2 /MD /Fe"' + $out + '" ' + $linkInputs
+          cmd.exe /d /c $linkCmd
+          if ($LASTEXITCODE -ne 0) { throw "MSVC link failed with exit code $LASTEXITCODE" }
 
       - name: Verify DLL export
         shell: pwsh
