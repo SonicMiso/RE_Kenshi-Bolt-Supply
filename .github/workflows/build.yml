@@ -106,8 +106,9 @@ jobs:
           Write-Host "Compiler linker directives:"
           Write-Host $directives
 
-          $boostNames = [regex]::Matches($directives, '/DEFAULTLIB:"(libboost_[^"]+\.lib)"') |
-            ForEach-Object { $_.Groups[1].Value } |
+          $boostNames = $directives -split '\\s+' |
+            Where-Object { $_ -like '/DEFAULTLIB:libboost_*.lib' } |
+            ForEach-Object { $_.Substring(12) } |
             Sort-Object -Unique
 
           $boostArgs = @()
