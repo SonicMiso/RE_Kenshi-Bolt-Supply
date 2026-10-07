@@ -167,13 +167,7 @@ namespace BoltSupply
             return false;
         }
 
-        DebugLog(
-            "Bolt Supply: "
-            + receiver->getName()
-            + " collected "
-            + std::to_string(amount)
-            + " ammo from "
-            + source->getName());
+        DebugLog("Bolt Supply: ammo transfer completed");
 
         return true;
     }
@@ -315,11 +309,7 @@ namespace BoltSupply
             true,
             source->getPosition());
 
-        DebugLog(
-            "Bolt Supply: "
-            + character->getName()
-            + " travelling to "
-            + source->getName());
+        DebugLog("Bolt Supply: character travelling to supply source");
     }
 
     static void updateJob(Character* character)
