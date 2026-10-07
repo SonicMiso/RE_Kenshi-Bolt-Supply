@@ -27,6 +27,8 @@ namespace std
 #include <Debug.h>
 #include <core/Functions.h>
 
+class GunClassPersonal;
+
 #include <kenshi/Building/Building.h>
 #include <kenshi/Character.h>
 #include <kenshi/Enums.h>
@@ -363,7 +365,7 @@ namespace BoltSupply
         Job& job = it->second;
         RootObject* source = job.source;
 
-        if (!character || !source || source->isDestroyed())
+        if (!character || !source)
         {
             clearJob(character);
             return;
